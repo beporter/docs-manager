@@ -1,8 +1,6 @@
 <?php
 // Usage docs. Include a sample cURL command to post a local zip file.
-// Example cURL command:
-// curl -FauthToken=foobar -FprojectName=test -Ffile=@docs-folder.zip http://localhost/docs-manager.php
-//@TODO: test and tweak the above.
+// Example cURL command: See `docs-post` in loadsys/CakePHP-Shell-Scripts repo.
 // You can also use Postman for testing: http://www.getpostman.com/
 
 
@@ -14,47 +12,54 @@ define('AUTH_TOKEN', 'foobar');
 define('BASE_PATH', '/Library/WebServer/Documents/docs-manager');
 
 // main()
-
-$iniCheck = new IniCheck();
-$request = new Request(AUTH_TOKEN);
-$response = new Response();
+$runtime = new DocManager(AUTH_TOKEN, BASE_PATH);
+$runtime->execute();
 
 
-//@TODO: Run $iniCheck->validate();
 
-if ($validationErrors = $request->validationErrors()) {
-	$response
-		->set(false, 'Post data is invalid.', $validationErrors)
-		->deliver();
+
+//@TODO: Doc blocks
+
+class DocManager {
+	protected $_token = null;
+	protected $_basePath = null;
+	protected $_request = null;
+	protected $_response = null;
+
+	public function __construct($token, $basePath) {
+		$this->_token = $token;
+		$this->_basePath = $basePath;
+		$this->_request = new Request($this->_token);
+		$this->_response = new Response();
+	}
+	
+	public function execute() {
+		$iniCheck = new IniCheck();
+		//@TODO: Run $iniCheck->validate();
+
+		if ($validationErrors = $this->_request->validationErrors()) {
+			$this->_response
+				->set(false, 'Post data is invalid.', $validationErrors)
+				->deliver();
+		}
+
+		$vars = $this->_request->sanitizedVars();
+		$destination = $this->_basePath . DIRECTORY_SEPARATOR . $vars['projectName'];
+
+		$extractor = new Extractor($vars['file']);
+		try {
+			$extractor->extract($destination);
+			//@TODO: Set .htaccess permissions!
+		//     (These credentials must be shareable with clients and must be unique to prevent one client from
+		//     accessing another client's docs.) (Error on failure.)
+			$this->_response->set(true, 'Zip file extracted successfully.', $destination);
+		} catch (Exception $e) {
+			$this->_response->set(false, 'Zip file extraction failed.', $e->getMessage());	
+		}
+
+		$this->_response->deliver();
+	}
 }
-
-$vars = $request->sanitizedVars();
-$destination = BASE_PATH . DIRECTORY_SEPARATOR . $vars['projectName'];
-
-$extractor = new Extractor($vars['file']);
-try {
-	$extractor->extract($destination);
-	//@TODO: Set .htaccess permissions!
-	$response->set(true, 'Zip file extracted successfully.', $destination);
-} catch (Exception $e) {
-	$response->set(false, 'Zip file extraction failed.', $e->getMessage());	
-}
-
-
-// If POST and AUTH_TOKEN is valid and PROJECT_NAME is present.
-//  Slugify PROJECT_NAME if necessary to make it filesystem path safe.
-//  Create a folder for $basePath + $projectSlug if it doesn't already exist. (Error on failure.)
-//  Save POSTed ZIP to tmp. (Error on failure.)
-//  Extract ZIP to destination path. (Error on failure.)
-//  Write an .htaccess file for Basic Auth using $projectSlug for the username and (something?) for password.
-//     (These credentials must be shareable with clients and must be unique to prevent one client from
-//     accessing another client's docs.) (Error on failure.)
-// Else
-//  No output? Help output (in json)?
-
-// Return json to caller with status.
-$response->deliver();
-
 
 
 class Request {
@@ -155,11 +160,12 @@ class Extractor {
 			if(!mkdir($path, 0777, true)) {
 				throw new Exception(sprintf('Requested destination path could not be created: %s', $path));
 			}
-		} elseif (!rm_r($path)) {
+		} else {
+			if (!rm_r($path)) {
+				throw new Exception(sprintf('Requested destination path could not be purged before recreation: %s', $path));
+			}
 			if(!mkdir($path, 0777, true)) {
 				throw new Exception(sprintf('Requested destination path could not be recreated: %s', $path));
-			} else {
-				throw new Exception(sprintf('Requested destination path could not be purged before recreation: %s', $path));
 			}
 		}
 		if (!is_writable($path)) {
@@ -174,6 +180,7 @@ class Extractor {
 			throw new Exception(sprintf('Zip file could not be extracted to path: %s', $path));
 		}
 		$archive->close();
+		unlink($this->_file['tmp_name']);
 
 		return true;
 	}
