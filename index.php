@@ -1,13 +1,15 @@
 <?php
+// Usage docs. Include a sample cURL command to post a local zip file.
+
 
 // $authToken = 'abc123'; // POSTed requests must be completely ignored if AUTH_TOKEN is not set to this.
 // $basePath = dirname(__FILE__); // Subdirectories for each project will be created from this base.
+
 
 // main()
 
 // Error if $authToken not set.
 // Error if $basePath not writeable.
-
 
 // If POST and AUTH_TOKEN is valid and PROJECT_NAME is present.
 //  Slugify PROJECT_NAME if necessary to make it filesystem path safe.
