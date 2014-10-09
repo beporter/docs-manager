@@ -10,4 +10,8 @@
 //  Create a folder for $basePath + $projectSlug if it doesn't already exist.
 //  Save POSTed ZIP to tmp.
 //  Extract ZIP to destination path.
-//  Write an .htacess file for Basic Auth using $projectSlug for the username and (something?) for password. (These credentials must be shareable with clients and must be unique to prevent one client from accessing another client's docs.)
+//  Write an .htaccess file for Basic Auth using $projectSlug for the username and (something?) for password. (These credentials must be shareable with clients and must be unique to prevent one client from accessing another client's docs.)
+// Else
+//  No output?
+
+// Return json to caller with status.
