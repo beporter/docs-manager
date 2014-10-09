@@ -16,7 +16,7 @@ $runtime = new DocManager(AUTH_TOKEN, BASE_PATH);
 $runtime->execute();
 
 
-
+//@TODO: Add a simple HTML form for manually adding docs and to serve as a POST example implementation (would still require an authToken)
 
 //@TODO: Doc blocks
 
@@ -37,9 +37,13 @@ class DocManager {
 		$iniCheck = new IniCheck();
 		//@TODO: Run $iniCheck->validate();
 
+		if ($this->_request->isFormRequest()) {
+			$this->displayForm();
+		}
+
 		if ($validationErrors = $this->_request->validationErrors()) {
 			$this->_response
-				->set(false, 'Post data is invalid.', $validationErrors)
+				->set(false, 'POST data is missing or invalid. Append ?form to the URL for an example HTML <form>.', $validationErrors)
 				->deliver();
 		}
 
@@ -59,6 +63,75 @@ class DocManager {
 
 		$this->_response->deliver();
 	}
+
+	public function displayForm() {
+		$html = <<<EOD
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Documentation Manager</title>
+		<meta charset="utf-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
+		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css">
+		<!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+		<!--[if lt IE 9]>
+			<script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+			<script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+		<![endif]-->
+	</head>
+	<body>
+		<div class="container-fluid">
+		<div class="row">
+		<div class="col-md-12">
+			<h1>Documentation Manager</h1>
+
+			<p class="lead">Provides a mechanism for auto-generated documentation (PHPUnit code coverage reports, code sniff reports, PHPDoc manuals) to be uploaded to a web server by continuous integration such as Travis CI.</p>
+
+			<p>The script will respond to all POST requests with a JSON object containing the following attributes:</p>
+
+			<dl class="dl-horizontal">
+				<dt><code>status</code></dt>
+				<dd>Boolean true or false indicating success or failure of the request, respectively.</dd>
+				<dt><code>message</code></dt>
+				<dd>A text string describing the result of the request.</dd>
+				<dt><code>data</code></dt>
+				<dd>Always an array, contains supplemental information relative to the given message or result.</dd>
+			</dl>
+
+			<p>The form below allows for manual upload and demonstrates the necessary values to POST to this script.</p>
+
+			<form role="form" action="?" method="post" enctype="multipart/form-data">
+				<div class="form-group">
+					<label for="authToken">authToken</label>
+					<input type="text" id="authToken" name="authToken" placeholder="foo" default="" class="form-control">
+					<p class="help-block">Coded into the script to prevent abuse. Must be supplied with each POST request.</p>
+				</div>
+				<div class="form-group">
+					<label for="projectName">projectName</label>
+					<input type="text" id="projectName" name="projectName" placeholder="project-name" default="test" class="form-control">
+					<p class="help-block">This will be used as a slug when creating the output directory on the web server, usually relative to the location of the <code>doc-manager.php</code> script.</p>
+				</div>
+				<div class="form-group">
+					<label for="file">file</label>
+					<input type="file" id="file" name="file" accept=".zip,application/zip" class="form-control">
+					<p class="help-block">Filename must end in <code>.zip</code> and the provided mimeType must be <code>application/zip</code>.</p>
+				</div>
+				<button type="submit" class="btn btn-primary">Submit</button>
+			</form>
+		</div>
+		</div>
+		</div>
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+		<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
+	</body>
+</html>
+
+EOD;
+		echo $html;
+		exit;
+	}
 }
 
 
@@ -66,11 +139,17 @@ class Request {
 	public $data = [];
 	public $files = [];
 	protected $_authToken = null;
+	protected $_isFormRquest = false;
 
 	public function __construct($authToken) {
 		$this->data = $_POST;
 		$this->files = $_FILES;
 		$this->_authToken = $authToken;
+		$this->_isFormRquest = isset($_GET['form']);
+	}
+
+	public function isFormRequest() {
+		return $this->_isFormRquest;
 	}
 
 	public function validationErrors() {
@@ -79,7 +158,7 @@ class Request {
 		if (empty($this->data['authToken'])) {
 			$errors[] = '`authToken` missing from POSTed vars.';
 		}
-		if ($this->data['authToken'] != $this->_authToken) {
+		if (isset($this->data['authToken']) && $this->data['authToken'] != $this->_authToken) {
 			$errors[] = '`authToken` value is incorrect.';
 		}
 		if (empty($this->data['projectName'])) {
@@ -91,10 +170,10 @@ class Request {
 		if (isset($this->files['file']['error']) && $this->files['file']['error'] > 0) {
 			$errors[] = sprintf('`file` upload failed with PHP error code %s.', $this->files['file']['error']);
 		}
-		if (pathinfo($this->files['file']['name'], PATHINFO_EXTENSION) !== 'zip') {
+		if (isset($this->files['file']['name']) && pathinfo($this->files['file']['name'], PATHINFO_EXTENSION) !== 'zip') {
 			$errors[] = '`file` upload does not end in .zip.';
 		}
-		if ($this->files['file']['type'] !== 'application/zip') {
+		if (isset($this->files['file']['type']) && $this->files['file']['type'] !== 'application/zip') {
 			$errors[] = '`file` upload mime time is not application/zip.';
 		}
 
@@ -345,6 +424,5 @@ foreach($ini_required_mins as $ini => $min):
 		<li><?php echo $this->Html->link(__('List Current Videos'), array('controller' => 'videos', 'action' => 'index')); ?> </li>
 	</ul>
 </div>
-
 
 */
