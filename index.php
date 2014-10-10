@@ -1,31 +1,98 @@
 <?php
-// Usage docs. Include a sample cURL command to post a local zip file.
-// Example cURL command: See `docs-post` in loadsys/CakePHP-Shell-Scripts repo.
-// You can also use Postman for testing: http://www.getpostman.com/
+/**
+ * doc-manager.php
+ *
+ * Acts as an upload destinatin point for ZIPed html documentation sets, such
+ * as those produced by PHPUnit's Code Coverage, PHPDoc, or PHP CodeSniffer.
+ *
+ * ## Usage ##
+ *
+ * Will accept the POSTed ZIP file and extract it to a web-accessible
+ * subfolder identified by the provided project name. Open this script in a
+ * web brwoser with `?form` at the end of the URL for a full description and
+ * an example <form>.
+ *
+ * An example client implementation is available in the
+ * loadsys/CakePHP-Shell-Scripts repo in the script named `docs-post`. You
+ * can also use Postman for testing: http://www.getpostman.com/
+ *
+ * ## Configuration ##
+ *
+ * Define these variables in the environment running the PHP script to
+ * override the defaults below. At least `DOCMAN_AUTH_TOKEN` must be
+ * defined and will be expected to authenticate every POST request under
+ * an `authToken` key.
+ *
+ * `DOCMAN_BASE_PATH` defines the full or relative path from this script
+ * where sub-folders should be created to store unpacked project docs. By
+ * default, the folder this file lives in will be used. The folder should
+ * be web-accessible and writeable by this script.
+ *
+ * Some of PHP's ini settings are critical for proper operation. The script
+ * will return errors in its json result payload if any of these values are
+ * incorrect or insufficient.
+ */
 
 
-// POSTed requests must be completely ignored if AUTH_TOKEN is not set to this.
-//define('AUTH_TOKEN', hash('sha256', 'foobar')); //@TODO: re-enable
-define('AUTH_TOKEN', 'foobar');
-// Subdirectories for each project will be created from this base.
-//define('BASE_PATH', dirname(__FILE__)); //@TODO: re-enable
-define('BASE_PATH', '/Library/WebServer/Documents/docs-manager');
-
-// main()
-$runtime = new DocManager(AUTH_TOKEN, BASE_PATH);
+/**
+ * main()
+ */
+define('DOCMAN_DEFAULT_TOKEN', 'efb0b5884e868ec4b3800331d427a436e789f82c3ae71e7cba55053f935a48cf');
+$runtime = new DocManager(
+	checkEnv('DOCMAN_AUTH_TOKEN', DOCMAN_DEFAULT_TOKEN),
+	checkEnv('DOCMAN_BASE_PATH', dirname(__FILE__))
+);
 $runtime->execute();
 
 
-//@TODO: Add a simple HTML form for manually adding docs and to serve as a POST example implementation (would still require an authToken)
 
-//@TODO: Doc blocks
 
+/**
+ * DocManager class
+ *
+ * Acts as the main runtime for the script. Handles the creation and
+ * coordination of all other related runtime objects.
+ */
 class DocManager {
+
+	/**
+	 * The authentication token value that all incoming POST requests must
+	 * include.
+	 *
+	 * @var string
+	 */
 	protected $_token = null;
+
+	/**
+	 * Local filesystem path (full or relative to this script) where doc
+	 * folders should be created. Should be web-accessible.
+	 *
+	 * @var string
+	 */
 	protected $_basePath = null;
+
+	/**
+	 * Stores an instance of a Request object, which contains details
+	 * from $_POST, $_GET and $_FILES.
+	 *
+	 * @var Request
+	 */
 	protected $_request = null;
+
+	/**
+	 * Stores an instance of a Response object used to deliver a JSON
+	 * payload back to the client.
+	 *
+	 * @var Response
+	 */
 	protected $_response = null;
 
+	/**
+	 * Initialize all necessary components for use.
+	 *
+	 * @param	string	$token		The authentication token value to expect with all POST requests.
+	 * @param	string	$basePath	The local or full web-accessible filesystem path where uploads docs will be expanded.
+	 */
 	public function __construct($token, $basePath) {
 		$this->_token = $token;
 		$this->_basePath = $basePath;
@@ -33,6 +100,12 @@ class DocManager {
 		$this->_response = new Response();
 	}
 	
+	/**
+	 * Execute the script's main logic. Responsible for checking ini settings,
+	 * POST param validity, processing the request and delivering a response.
+	 *
+	 * @return	void
+	 */
 	public function execute() {
 		$iniCheck = new IniCheck();
 		//@TODO: Run $iniCheck->validate();
@@ -64,6 +137,11 @@ class DocManager {
 		$this->_response->deliver();
 	}
 
+	/**
+	 * Renders a full HTML page to the browser and terminates this script.
+	 *
+	 * @return	void
+	 */
 	public function displayForm() {
 		$html = <<<EOD
 <!DOCTYPE html>
@@ -85,9 +163,11 @@ class DocManager {
 		<div class="container-fluid">
 		<div class="row">
 		<div class="col-md-12">
-			<h1>Documentation Manager</h1>
+			<div class="jumbotron">
+				<h1>Documentation Manager</h1>
 
-			<p class="lead">Provides a mechanism for auto-generated documentation (PHPUnit code coverage reports, code sniff reports, PHPDoc manuals) to be uploaded to a web server by continuous integration such as Travis CI.</p>
+				<p class="lead">Provides a mechanism to upload auto-generated documentation (PHPUnit code coverage reports, code sniff reports, PHPDoc manuals) to a web server via continuous integration such as Travis CI.</p>
+			</div>
 
 			<p>The script will respond to all POST requests with a JSON object containing the following attributes:</p>
 
@@ -100,26 +180,33 @@ class DocManager {
 				<dd>Always an array, contains supplemental information relative to the given message or result.</dd>
 			</dl>
 
-			<p>The form below allows for manual upload and demonstrates the necessary values to POST to this script.</p>
+			<div class="panel panel-info">
+				<div class="panel-heading">
+					<h3 class="panel-title">Example Form</h3>
+				</div>
+				<div class="panel-body">
+					<p>This form allows for manual upload and demonstrates the necessary values to POST to this script.</p>
 
-			<form role="form" action="?" method="post" enctype="multipart/form-data">
-				<div class="form-group">
-					<label for="authToken">authToken</label>
-					<input type="text" id="authToken" name="authToken" placeholder="foo" default="" class="form-control">
-					<p class="help-block">Coded into the script to prevent abuse. Must be supplied with each POST request.</p>
-				</div>
-				<div class="form-group">
-					<label for="projectName">projectName</label>
-					<input type="text" id="projectName" name="projectName" placeholder="project-name" default="test" class="form-control">
-					<p class="help-block">This will be used as a slug when creating the output directory on the web server, usually relative to the location of the <code>doc-manager.php</code> script.</p>
-				</div>
-				<div class="form-group">
-					<label for="file">file</label>
-					<input type="file" id="file" name="file" accept=".zip,application/zip" class="form-control">
-					<p class="help-block">Filename must end in <code>.zip</code> and the provided mimeType must be <code>application/zip</code>.</p>
-				</div>
-				<button type="submit" class="btn btn-primary">Submit</button>
-			</form>
+					<form role="form" action="?" method="post" enctype="multipart/form-data">
+						<div class="form-group">
+							<label for="authToken">authToken</label>
+							<input type="text" id="authToken" name="authToken" placeholder="foo" class="form-control">
+							<p class="help-block">Coded into the script to prevent abuse. Must be supplied with each POST request.</p>
+						</div>
+						<div class="form-group">
+							<label for="projectName">projectName</label>
+							<input type="text" id="projectName" name="projectName" placeholder="project-name" class="form-control">
+							<p class="help-block">This will be used as a slug when creating the output directory on the web server, usually relative to the location of the <code>doc-manager.php</code> script.</p>
+						</div>
+						<div class="form-group">
+							<label for="file">file</label>
+							<input type="file" id="file" name="file" accept=".zip,application/zip" class="form-control">
+							<p class="help-block">Filename must end in <code>.zip</code> and the provided mimeType must be <code>application/zip</code>.</p>
+						</div>
+						<button type="submit" class="btn btn-primary">Submit</button>
+					</form>
+				<div>
+			<div>
 		</div>
 		</div>
 		</div>
@@ -135,28 +222,70 @@ EOD;
 }
 
 
+/**
+ * Request class
+ *
+ * Provides a sanitized and validated interface to $_POST, $_GET and $_FILES.
+ */
 class Request {
-	public $data = [];
-	public $files = [];
-	protected $_authToken = null;
-	protected $_isFormRquest = false;
 
+	/**
+	 * POSTed data captured from $_POST.
+	 *
+	 * @var array
+	 */
+	public $data = [];
+
+	/**
+	 * POSTed file uploads captured from $_FILES.
+	 *
+	 * @var array
+	 */
+	public $files = [];
+
+	/**
+	 * The authentication token value that all incoming POST requests must
+	 * include.
+	 *
+	 * @var string
+	 */
+	protected $_authToken = null;
+
+	/**
+	 * Initialize all necessary components for use.
+	 *
+	 * @param	string	$token		The authentication token value to expect with all POST requests.
+	 */
 	public function __construct($authToken) {
 		$this->data = $_POST;
 		$this->files = $_FILES;
 		$this->_authToken = $authToken;
-		$this->_isFormRquest = isset($_GET['form']);
 	}
 
+	/**
+	 * Returns true when $_GET['form'] is set.
+	 *
+	 * @return	bool				True when $_GET['form'] is set, false otherwise.
+	 */
 	public function isFormRequest() {
-		return $this->_isFormRquest;
+		return isset($_GET['form']);
 	}
 
+	/**
+	 * Verifies the presence and value of all expected POST variables.
+	 * Returns an array of error strings when problems are encountered,
+	 * and false if there are zero validation errors to report.
+	 *
+	 * @return	false|array				False when zero errors, array of string error messages when validation fails in any way.
+	 */
 	public function validationErrors() {
 		$errors = false;
 
 		if (empty($this->data['authToken'])) {
 			$errors[] = '`authToken` missing from POSTed vars.';
+		}
+		if (isset($this->data['authToken']) && $this->data['authToken'] == DOCMAN_DEFAULT_TOKEN) {
+			$errors[] = '`authToken` has not been properly configured.';
 		}
 		if (isset($this->data['authToken']) && $this->data['authToken'] != $this->_authToken) {
 			$errors[] = '`authToken` value is incorrect.';
@@ -180,28 +309,81 @@ class Request {
 		return $errors;
 	}
 
-	// Returns sanitized values for the recognized POST vars as an associative array.
+	/**
+	 * Convenience getter method to extract the sanitized parts of the
+	 * request we need to deal with further. (The temp uploaded file and
+	 * the project name to use when extracting it.)
+	 *
+	 * @return	array				Always contains two keys: [file], which contains standard PHP uploaded file info, and [projectName] which is a filesystem-santized string safe for creating a folder to contain the extracted docs.
+	 */
 	public function sanitizedVars() {
 		$file = $this->files['file'];
-		$projectName = $this->sanitizeProjectName($this->data['projectName']);
+		$projectName = $this->_sanitizeProjectName($this->data['projectName']);
 		return compact('projectName', 'file');
 	}
 
-	protected function sanitizeProjectName($p) {
+	/**
+	 * Strips disallowed characters from the provided string and returns
+	 * the sanitized result.
+	 *
+	 * @param	string	$p			A string to sanitize.
+	 * @return	array				The lowercase, alnum-only version of the string.
+	 */
+	protected function _sanitizeProjectName($p) {
 		return strtolower(preg_replace('/[^a-z0-9_-]/i', '', $p));
 	}
 }
 
 
+
+/**
+ * Response class
+ *
+ * Provides an interface for delivering consistent JSON payloads back to
+ * the browser.
+ */
 class Response {
+
+	/**
+	 * Stores the exit status of the response. True for "success" and
+	 * false for "failure".
+	 *
+	 * @var bool
+	 */
 	protected $_status = true;
+
+	/**
+	 * Stores a string description of the result.
+	 *
+	 * @var string
+	 */
 	protected $_message = '';
+
+	/**
+	 * Stores additional payload data for the result.
+	 *
+	 * @var array
+	 */
 	protected $_data = [];
 
+	/**
+	 * Initialize all necessary components for use.
+	 *
+	 * @param	string	$status		Optional status state to set during object creation.
+	 * @param	string	$message	Optional message to set during object creation.
+	 * @param	array	$data		Optional data payload to set during object creation.
+	 */
 	public function __construct($status = null, $message = null, $data = null) {
 		$this->set($status, $message, $data);
 	}
 
+	/**
+	 * Set response values.
+	 *
+	 * @param	string	$status		Optional status state to set. Ignored when null.
+	 * @param	string	$message	Optional message to set. Ignored when null.
+	 * @param	array	$data		Optional data payload to set. Ignored when null.
+	 */
 	public function set($status = null, $message = null, $data = null) {
 		if (!is_null($status)) {
 			$this->_status = (bool)$status;
@@ -215,6 +397,12 @@ class Response {
 		return $this;
 	}
 
+	/**
+	 * Sets a json content type header, prints the json resposne object and
+	 * terminates script execution.
+	 *
+	 * @return	void
+	 */
 	public function deliver() {
 		$json = [
 			'status' => $this->_status,
@@ -227,13 +415,42 @@ class Response {
 	}
 }
 
+/**
+ * Extractor class
+ *
+ * Wrapper around the ZipArchive class. Handles creating or recreating
+ * the destination folder and extracting the doc bundle to it.
+ */
 class Extractor {
+
+	/**
+	 * Stores the details for an uploaded file. Format of the array must
+	 * match the format used in $_FILES.
+	 *
+	 * @ref http://php.net/manual/en/reserved.variables.files.php
+	 * @ref http://php.net/manual/en/features.file-upload.errors.php
+	 * @var array
+	 */
 	protected $_file = null;
 
+	/**
+	 * Initialize all necessary components for use.
+	 *
+	 * @param	array	$uploadedFile	An array of properties for an uploaded file. Must contain at least a [tmp_name] key populated with a local filesystem path to the uploaded file.
+	 */
 	public function __construct($uploadedFile) {
 		$this->_file = $uploadedFile;
 	}
 
+	/**
+	 * Extract the ZIP file into the destination path, creating or
+	 * recreating it if necessary. The tmp file will be deleted after
+	 * successful extraction.
+	 *
+	 * @param	string	$path		A local filesystem path to extract into. **WARNING** Will be created if not present, and deleted and recreated if it is.
+	 * @return	true				True when the ZIP was fully extracted successfully.
+	 * @throws	Exception			If the destination folder isn't writeable, can't be created or created, or the ZIP can't be opened or extracted. The Exception will contain an error message string.
+	 */
 	public function extract($path) {
 		if (!is_dir($path)) {
 			if(!mkdir($path, 0777, true)) {
@@ -264,6 +481,8 @@ class Extractor {
 		return true;
 	}
 }
+
+
 
 class PhpIniException extends Exception {
 	//protected $_messageTemplate = 'php.ini %s is too small! (Current: %s, Minimum required: %s)';
@@ -347,40 +566,6 @@ class IniCheck {
 // 		$this->set('title_for_layout', 'php.ini Configuration Check');
 // 		$this->set('ini_required_mins', $this->ini_required_mins);
 	}
-}
-
-
-/**
- * Recursively delete a directory and all of it's contents - e.g.the equivalent of `rm -r` on the command-line.
- * Consistent with `rmdir()` and `unlink()`, an E_WARNING level error will be generated on failure.
- *
- * @ref https://gist.github.com/mindplay-dk/a4aad91f5a4f1283a5e2
- * @param string $dir absolute path to directory to delete
- * @return bool true on success; false on failure
- */
-function rm_r($dir)
-{
-    /** @var SplFileInfo[] $files */
-    $files = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($dir, RecursiveDirectoryIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::CHILD_FIRST
-    );
- 
-    foreach ($files as $fileinfo) {
-        if ($fileinfo->isDir()) {
-            if (false === rmdir($fileinfo->getRealPath())) {
-                return false;
-            }
-        } else {
-            if (false === unlink($fileinfo->getRealPath())) {
-                return false;
-            }
-        }
-    }
- 
-    return rmdir($dir);
-}
-
 
 /*
 
@@ -426,3 +611,56 @@ foreach($ini_required_mins as $ini => $min):
 </div>
 
 */
+
+}
+
+
+/**
+ * Fetch an environment variable by name, or use a default.
+ *
+ * Checks for an environment variables identified by $key and returns
+ * the value if non-empty, otherwise returns $default.
+ *
+ * @param	string	$key		A string representing the environment variable name to look up.
+ * @param	string	$default	A default value to use if the env var is empty.
+ * @return	string				The defined value of the env var, or the default string.
+ */
+function checkEnv($key, $default) {
+	$val = getenv($key);
+	$val = (!empty($val) ? $val : $default);
+	return $val;
+}
+
+/**
+ * Recursively delete a directory and all of its contents.
+ *
+ * - e.g. the equivalent of `rm -r` on the command-line. Consistent with
+ * `rmdir()` and `unlink()`, an E_WARNING level error will be generated
+ * on failure.
+ *
+ * @ref	https://gist.github.com/mindplay-dk/a4aad91f5a4f1283a5e2
+ * @param	string	$dir	Absolute path to directory to delete.
+ * @return	bool			True on success; false on failure.
+ */
+function rm_r($dir){
+    /** @var SplFileInfo[] $files */
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($dir, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+
+    foreach ($files as $fileinfo) {
+        if ($fileinfo->isDir()) {
+            if (false === rmdir($fileinfo->getRealPath())) {
+                return false;
+            }
+        } else {
+            if (false === unlink($fileinfo->getRealPath())) {
+                return false;
+            }
+        }
+    }
+
+    return rmdir($dir);
+}
+
